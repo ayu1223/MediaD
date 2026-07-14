@@ -1,58 +1,24 @@
-"""
-Application-wide constants.
-"""
+from __future__ import annotations
 
-from pathlib import Path
+CONFIG_FILE_NAME = "settings.json"
+CONFIG_TEMPLATE_RELATIVE_PATH = "config/settings.json"
+DATABASE_FILE_NAME = "media_downloader.db"
 
-# ------------------------------
-# Window
-# ------------------------------
+LOG_FILE_NAME = "media_downloader.log"
+LOG_MAX_BYTES = 5 * 1024 * 1024
+LOG_BACKUP_COUNT = 5
 
-WINDOW_WIDTH = 1400
-WINDOW_HEIGHT = 850
+DEFAULT_WINDOW_WIDTH = 1180
+DEFAULT_WINDOW_HEIGHT = 720
 
-MIN_WINDOW_WIDTH = 1100
-MIN_WINDOW_HEIGHT = 700
+SUPPORTED_VIDEO_QUALITIES: tuple[str, ...] = ("2160p", "1440p", "1080p", "720p", "480p", "360p")
+SUPPORTED_AUDIO_FORMATS: tuple[str, ...] = ("mp3", "m4a", "opus", "flac", "wav")
 
-SIDEBAR_WIDTH = 230
+DEFAULT_MAX_CONCURRENT_DOWNLOADS = 3
 
-APP_PADDING = 20
+THUMBNAIL_CACHE_DIRNAME = "thumbnails"
 
-# ------------------------------
-# Theme
-# ------------------------------
+# Left empty until a real release feed exists; update_service treats an empty
+# value as "update checking disabled" rather than failing.
+UPDATE_CHECK_URL = ""
 
-DEFAULT_THEME = "Dark"
-
-SUPPORTED_THEMES = (
-    "Dark",
-    "Light",
-)
-
-# ------------------------------
-# Downloads
-# ------------------------------
-
-DEFAULT_DOWNLOAD_DIRECTORY = (
-    Path.home()
-    / "Downloads"
-    / "MediaDownloader"
-)
-
-MAX_CONCURRENT_DOWNLOADS = 3
-
-# ------------------------------
-# Networking
-# ------------------------------
-
-REQUEST_TIMEOUT = 20
-
-USER_AGENT = (
-    "MediaDownloader/1.0"
-)
-
-# ------------------------------
-# History
-# ------------------------------
-
-MAX_HISTORY_ITEMS = 1000

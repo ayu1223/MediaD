@@ -1,47 +1,46 @@
-"""
-Application stylesheet.
-"""
+from __future__ import annotations
 
-APP_STYLE = """
-QMainWindow{
-    background:#202225;
-}
+from enum import Enum
+from pathlib import Path
 
-QWidget{
-    background:#313338;
-    color:white;
-    font-size:14px;
-}
+from PySide6.QtWidgets import QApplication
 
-QPushButton{
-    background:#5865F2;
-    color:white;
-    border:none;
-    border-radius:8px;
-    padding:8px 16px;
-}
+from app.core.logger import get_logger
+from app.core.paths import get_project_root
 
-QPushButton:hover{
-    background:#7289DA;
-}
+_logger = get_logger(__name__)
 
-QLineEdit{
-    background:#1E1F22;
-    border:1px solid #555;
-    border-radius:8px;
-    padding:8px;
-}
 
-QComboBox{
-    background:#1E1F22;
-    border-radius:8px;
-    padding:6px;
-}
+class Theme(Enum):
+    """Available application themes."""
 
-QGroupBox{
-    border:1px solid #444;
-    border-radius:8px;
-    margin-top:10px;
-    padding:10px;
-}
-"""
+    DARK = "dark"
+    LIGHT = "light"
+
+
+def _stylesheet_path(theme: Theme) -> Path:
+    return get_project_root() / "resources" / "themes" / f"{theme.value}.qss"
+
+
+def load_stylesheet(theme: Theme) -> str:
+    """Return the QSS contents for the given theme, or an empty string if not yet authored."""
+    path = _stylesheet_path(theme)
+    if not path.exists():
+        _logger.warning("Stylesheet for theme '%s' not found at %s; using default Qt styling.", theme.value, path)
+        return ""
+    return path.read_text(encoding="utf-8")
+
+
+def apply_theme(app: QApplication, theme: Theme) -> None:
+    """Apply the given theme's stylesheet to the running application."""
+    app.setStyleSheet(load_stylesheet(theme))
+    _logger.info("Applied '%s' theme.", theme.value)
+
+
+def theme_from_value(value: str) -> Theme:
+    """Resolve a stored config string into a Theme, defaulting to DARK if unrecognized."""
+    try:
+        return Theme(value)
+    except ValueError:
+        _logger.warning("Unknown theme value '%s'; defaulting to dark.", value)
+        return Theme.DARK

@@ -1,0 +1,11 @@
+{
+    "version": 1,
+    "download_directory": "",
+    "max_concurrent_downloads": 3,
+    "default_video_quality": "1080p",
+    "default_audio_format": "mp3",
+    "theme": "dark",
+    "window_geometry": null,
+    "confirm_before_delete": true,
+    "check_for_updates": true
+}

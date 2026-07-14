@@ -1,23 +1,24 @@
-"""
-Shared Qt signals.
-"""
+from __future__ import annotations
 
 from PySide6.QtCore import QObject, Signal
 
 
-class AppSignals(QObject):
+class SignalBus(QObject):
+    """Application-wide signal hub for cross-cutting events not owned by a single worker or service."""
 
-    metadata_fetched = Signal(object)
+    status_message = Signal(str)
+    error_occurred = Signal(str, str)
 
-    metadata_failed = Signal(str)
-
-    download_started = Signal(object)
-
-    download_progress = Signal(object)
-
-    download_finished = Signal(object)
-
-    download_failed = Signal(str)
+    def __init__(self) -> None:
+        super().__init__()
 
 
-signals = AppSignals()
+_signal_bus: SignalBus | None = None
+
+
+def get_signal_bus() -> SignalBus:
+    """Return the process-wide SignalBus instance, creating it on first use."""
+    global _signal_bus
+    if _signal_bus is None:
+        _signal_bus = SignalBus()
+    return _signal_bus

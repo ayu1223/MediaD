@@ -1,59 +1,41 @@
-# =========================
-# Python
-# =========================
-__pycache__/
-*.py[cod]
-*$py.class
-
-# Virtual Environment
+# Virtual environment
 .venv/
 venv/
 env/
 
-# =========================
-# Build
-# =========================
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Build artifacts
 build/
 dist/
 *.spec
 
-# =========================
-# Logs
-# =========================
-logs/
-*.log
+# Application runtime data
+logs/*
+!logs/.gitkeep
+downloads/*
+!downloads/.gitkeep
 
-# =========================
-# Downloads
-# =========================
-downloads/
+# User-writable config (generated from app/config/settings.json template)
+*.local.json
 
-# =========================
-# Settings
-# =========================
-app/config/settings.json
+# Database
+*.sqlite3
+*.db
 
-# =========================
-# IDE
-# =========================
+# OS / editor
+.DS_Store
+Thumbs.db
 .vscode/
 .idea/
 
-# =========================
-# OS
-# =========================
-Thumbs.db
-.DS_Store
-
-# =========================
-# Testing
-# =========================
-.pytest_cache/
-.coverage
-htmlcov/
-
-# =========================
-# Temporary
-# =========================
-*.tmp
-*.bak
+# FFmpeg binaries
+resources/ffmpeg/*.exe
