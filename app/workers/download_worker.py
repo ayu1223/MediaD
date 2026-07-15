@@ -6,19 +6,30 @@ from collections.abc import Callable
 from PySide6.QtCore import QThread, Signal
 
 from app.core.logger import get_logger
+from app.downloader.progress import DownloadPausedError
 from app.models.download_item import DownloadItem, DownloadStatus
 
 _logger = get_logger(__name__)
 
 ProgressCallback = Callable[[int, int, float], None]
-DownloadFunction = Callable[[DownloadItem, ProgressCallback, threading.Event], None]
+DownloadFunction = Callable[[DownloadItem, ProgressCallback, threading.Event, threading.Event], None]
 
 
 class DownloadWorker(QThread):
-    """Runs a download callable off the UI thread, reporting progress and completion via signals."""
+    """Runs a download callable off the UI thread, reporting progress and completion via signals.
+
+    Supports both cancellation (terminal, cleans up partial output) and pausing
+    (temporary, preserves partial output so a fresh worker can resume later — see
+    DownloadManager.pause/resume, which is how a "paused" download actually
+    continues: rather than keeping this thread alive indefinitely, pausing lets it
+    exit cleanly and resuming starts a brand new worker for the same DownloadItem,
+    relying on the provider's own resume support, e.g. yt-dlp's --continue/.part
+    files or an HTTP Range request).
+    """
 
     progress = Signal(object)
     finished_ok = Signal(object)
+    paused = Signal(object)
     failed = Signal(object, str)
 
     def __init__(self, item: DownloadItem, download_fn: DownloadFunction, parent=None) -> None:
@@ -26,10 +37,16 @@ class DownloadWorker(QThread):
         self._item = item
         self._download_fn = download_fn
         self._cancel_event = threading.Event()
+        self._pause_event = threading.Event()
 
     def cancel(self) -> None:
         """Request cooperative cancellation; the injected download function must honor cancel_event."""
         self._cancel_event.set()
+
+    def request_pause(self) -> None:
+        """Request a cooperative pause; the injected download function must honor pause_event
+        by stopping without deleting any partial output it has written so far."""
+        self._pause_event.set()
 
     def _on_progress(self, downloaded_bytes: int, total_bytes: int, speed_bytes_per_sec: float) -> None:
         self._item.downloaded_bytes = downloaded_bytes
@@ -41,7 +58,12 @@ class DownloadWorker(QThread):
     def run(self) -> None:
         self._item.status = DownloadStatus.DOWNLOADING
         try:
-            self._download_fn(self._item, self._on_progress, self._cancel_event)
+            self._download_fn(self._item, self._on_progress, self._cancel_event, self._pause_event)
+        except DownloadPausedError:
+            self._item.status = DownloadStatus.PAUSED
+            _logger.info("Download paused for %s", self._item.media_info.title)
+            self.paused.emit(self._item)
+            return
         except Exception as error:  # noqa: BLE001 - worker boundary must not crash the thread
             if self._cancel_event.is_set():
                 self._item.status = DownloadStatus.CANCELLED
