@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QMainWindow,
     QStackedWidget,
+    QSystemTrayIcon,
     QVBoxLayout,
     QWidget,
 )
@@ -25,6 +26,7 @@ from app.models.download_item import DownloadItem
 from app.models.history_item import HistoryItem, MediaType
 from app.services.download_service import DownloadService
 from app.services.history_service import HistoryService
+from app.services.notification_service import NotificationService
 from app.services.settings_service import SettingsService
 from app.services.thumbnail_service import ThumbnailService
 from app.services.update_service import UpdateService
@@ -86,6 +88,8 @@ class MainWindow(QMainWindow):
         )
         self._thumbnail_service = ThumbnailService()
         self._update_service = UpdateService()
+        self._notification_service = NotificationService(self)
+        self._notification_service.set_enabled(settings.notifications_enabled)
 
         root = QWidget(self)
         root.setObjectName("RootBackground")
@@ -222,6 +226,7 @@ class MainWindow(QMainWindow):
         self._download_service.item_started.connect(self._on_item_started)
         self._download_service.item_completed.connect(self._on_item_completed)
         self._download_service.item_cancelled.connect(self._on_item_cancelled)
+        self._download_service.item_paused.connect(self._on_item_paused)
         self._download_service.item_failed.connect(self._on_item_failed)
         self._download_service.metadata_failed.connect(self._on_metadata_failed)
 
@@ -260,10 +265,16 @@ class MainWindow(QMainWindow):
         has_pending_or_active = bool(active) or any(not item.is_finished() for item in items)
         if self._had_pending_downloads and not has_pending_or_active:
             self.toast_host.notify("Queue finished — all downloads are done.", "success")
+            self._notification_service.notify(
+                "Queue finished", "All downloads are done.", QSystemTrayIcon.MessageIcon.Information
+            )
         self._had_pending_downloads = has_pending_or_active
 
     def _on_item_started(self, item: DownloadItem) -> None:
         self.toast_host.notify(f"Download started: {item.media_info.title}", "info")
+        self._notification_service.notify(
+            "Download started", item.media_info.title, QSystemTrayIcon.MessageIcon.Information
+        )
 
     def _on_item_completed(self, item: DownloadItem) -> None:
         history_item = HistoryItem(
@@ -281,14 +292,24 @@ class MainWindow(QMainWindow):
         self._history_service.add(history_item)
         self._history_page.refresh()
         self.toast_host.notify(f"Download completed: {item.media_info.title}", "success")
+        self._notification_service.notify(
+            "Download completed", item.media_info.title, QSystemTrayIcon.MessageIcon.Information
+        )
         self._on_queue_changed()
 
     def _on_item_cancelled(self, item: DownloadItem) -> None:
         self.toast_host.notify(f"Cancelled: {item.media_info.title}", "info")
         self._on_queue_changed()
 
+    def _on_item_paused(self, item: DownloadItem) -> None:
+        self.toast_host.notify(f"Paused: {item.media_info.title}", "info")
+        self._on_queue_changed()
+
     def _on_item_failed(self, item: DownloadItem, message: str) -> None:
         get_signal_bus().error_occurred.emit(item.media_info.title, message)
+        self._notification_service.notify(
+            "Download failed", item.media_info.title, QSystemTrayIcon.MessageIcon.Critical
+        )
         self._on_queue_changed()
 
     def _on_metadata_failed(self, message: str) -> None:
@@ -312,6 +333,7 @@ class MainWindow(QMainWindow):
             self._download_service.set_max_concurrent_downloads(max_concurrent)
         cookies_file = getattr(settings, "cookies_file", None)
         self._download_service.set_cookies_file(cookies_file or None)
+        self._notification_service.set_enabled(getattr(settings, "notifications_enabled", True))
         # Note: the migrated UI ships a single dark theme (matching the design
         # prototype, which has no light variant), so unlike the previous UI there
         # is no stylesheet to swap here when settings.theme changes.
