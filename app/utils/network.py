@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -30,4 +31,31 @@ def http_get(url: str, timeout: float = _DEFAULT_TIMEOUT_SECONDS) -> HttpRespons
             )
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError) as error:
         _logger.warning("HTTP GET failed for %s: %s", url, error)
+        return None
+
+
+def http_post_json(
+    url: str,
+    payload: dict,
+    headers: dict[str, str] | None = None,
+    timeout: float = _DEFAULT_TIMEOUT_SECONDS,
+) -> dict | None:
+    """POST a JSON payload and parse a JSON response. Returns None on any network,
+    HTTP, or JSON-decoding error rather than raising — callers that need to
+    distinguish failure reasons should catch at a higher level (this is used by
+    the native YouTube extractor, which treats any None here as "fall back to
+    yt-dlp" rather than a hard error).
+    """
+    body = json.dumps(payload).encode("utf-8")
+    request_headers = {"User-Agent": _USER_AGENT, "Content-Type": "application/json"}
+    request_headers.update(headers or {})
+    request = urllib.request.Request(url, data=body, headers=request_headers, method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return json.loads(response.read())
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError) as error:
+        _logger.warning("HTTP POST failed for %s: %s", url, error)
+        return None
+    except json.JSONDecodeError as error:
+        _logger.warning("HTTP POST to %s returned invalid JSON: %s", url, error)
         return None

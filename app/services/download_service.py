@@ -32,6 +32,7 @@ class DownloadService(QObject):
     item_started = Signal(object)
     item_completed = Signal(object)
     item_cancelled = Signal(object)
+    item_paused = Signal(object)
     item_failed = Signal(object, str)
     queue_changed = Signal()
 
@@ -46,6 +47,7 @@ class DownloadService(QObject):
         self._download_manager.item_started.connect(self.item_started)
         self._download_manager.item_completed.connect(self.item_completed)
         self._download_manager.item_cancelled.connect(self.item_cancelled)
+        self._download_manager.item_paused.connect(self.item_paused)
         self._download_manager.item_failed.connect(self.item_failed)
         self._download_manager.queue_changed.connect(self.queue_changed)
 
@@ -93,6 +95,14 @@ class DownloadService(QObject):
 
     def cancel_download(self, item_id: str) -> None:
         self._download_manager.cancel(item_id)
+
+    def pause_download(self, item_id: str) -> None:
+        """Pause an active or queued download; see DownloadManager.pause for details."""
+        self._download_manager.pause(item_id)
+
+    def resume_download(self, item_id: str) -> None:
+        """Resume a previously-paused download; see DownloadManager.resume for details."""
+        self._download_manager.resume(item_id)
 
     def clear_finished(self) -> None:
         """Remove completed/failed/cancelled items from the queue view."""

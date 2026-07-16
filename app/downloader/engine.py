@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.downloader.providers.base import Provider
 from app.downloader.providers.direct_http_provider import DirectHttpProvider
+from app.downloader.providers.youtube_provider import YouTubeProvider
 from app.downloader.providers.ytdlp_provider import YtDlpProvider
 
 
@@ -17,8 +18,16 @@ class DownloaderEngine:
 
     @staticmethod
     def _default_providers(cookies_file: str | None = None) -> list[Provider]:
-        # Specific providers first, generic fallback last.
-        return [DirectHttpProvider(), YtDlpProvider(cookies_file=cookies_file)]
+        # Issue 7/8: YouTube URLs go through the composite YouTubeProvider (tries
+        # the native InnerTube-based extractor first, transparently falls back to
+        # yt-dlp — see providers/youtube_provider.py) ahead of the generic
+        # YtDlpProvider, which remains registered afterward as the catch-all for
+        # every other supported site (Vimeo, Twitter/X, etc).
+        return [
+            DirectHttpProvider(),
+            YouTubeProvider(YtDlpProvider(cookies_file=cookies_file)),
+            YtDlpProvider(cookies_file=cookies_file),
+        ]
 
     def set_cookies_file(self, cookies_file: str | None) -> None:
         """Propagate an updated cookies.txt path to every provider that supports it."""

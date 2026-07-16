@@ -22,6 +22,7 @@ class AppSettings:
     confirm_before_delete: bool = True
     check_for_updates: bool = True
     cookies_file: str = ""
+    notifications_enabled: bool = True
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "AppSettings":

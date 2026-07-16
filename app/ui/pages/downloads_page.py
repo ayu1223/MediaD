@@ -1,13 +1,8 @@
 """Downloads page — stat cards + live download cards.
 
 Visual design migrated from the Fluxe UI prototype; wiring is new and connects to
-the real DownloadService queue (progress, completion, failure, cancellation).
-
-Note: the backend (DownloadManager) currently only supports cancellation, not
-true pause/resume, even though DownloadStatus.PAUSED exists as an enum value.
-The Pause/Resume buttons are kept for visual parity with the prototype but are
-disabled with an explanatory tooltip rather than silently doing nothing — see
-the backend audit notes (Issue 5) for what a real implementation would need.
+the real DownloadService queue (progress, completion, failure, cancellation,
+pause/resume).
 """
 from __future__ import annotations
 
@@ -37,11 +32,13 @@ _STATUS_LABELS = {
 
 
 class DownloadCard(GlassCard):
-    def __init__(self, item: DownloadItem, on_cancel, parent=None):
+    def __init__(self, item: DownloadItem, on_cancel, on_pause, on_resume, parent=None):
         super().__init__(parent, elevated=False, padding=18)
         self._layout.setSpacing(12)
         self._item_id = item.id
         self._on_cancel = on_cancel
+        self._on_pause = on_pause
+        self._on_resume = on_resume
 
         top = QHBoxLayout()
         top.setSpacing(16)
@@ -93,14 +90,14 @@ class DownloadCard(GlassCard):
 
         controls = QVBoxLayout()
         controls.setSpacing(8)
-        pause_btn = IconButton("fa6s.pause", "Pause (not yet supported)")
-        pause_btn.setEnabled(False)
-        resume_btn = IconButton("fa6s.play", "Resume (not yet supported)")
-        resume_btn.setEnabled(False)
+        self._pause_btn = IconButton("fa6s.pause", "Pause")
+        self._pause_btn.clicked.connect(lambda: self._on_pause(self._item_id))
+        self._resume_btn = IconButton("fa6s.play", "Resume")
+        self._resume_btn.clicked.connect(lambda: self._on_resume(self._item_id))
         self._cancel_btn = IconButton("fa6s.xmark", "Cancel")
         self._cancel_btn.clicked.connect(lambda: self._on_cancel(self._item_id))
-        controls.addWidget(pause_btn)
-        controls.addWidget(resume_btn)
+        controls.addWidget(self._pause_btn)
+        controls.addWidget(self._resume_btn)
         controls.addWidget(self._cancel_btn)
         top.addLayout(controls)
 
@@ -124,6 +121,17 @@ class DownloadCard(GlassCard):
         else:
             self._speed_lbl.setText("")
             self._eta_lbl.setText(format_bytes(item.total_bytes) if item.total_bytes else "")
+
+        # Issue 4/6: pause/resume are real actions now, gated by actual item
+        # state rather than permanently disabled placeholders. Pause only makes
+        # sense while something is actually happening (or waiting to); resume
+        # only makes sense once paused; cancel is available any time before a
+        # terminal state.
+        can_pause = item.status in (DownloadStatus.DOWNLOADING, DownloadStatus.MERGING, DownloadStatus.QUEUED)
+        self._pause_btn.setEnabled(can_pause)
+        self._pause_btn.setVisible(item.status != DownloadStatus.PAUSED)
+        self._resume_btn.setEnabled(item.status == DownloadStatus.PAUSED)
+        self._resume_btn.setVisible(item.status == DownloadStatus.PAUSED)
         self._cancel_btn.setEnabled(not item.is_finished())
 
 
@@ -154,11 +162,14 @@ class DownloadsPage(QWidget):
         grid.setVerticalSpacing(16)
         self._active_stat = StatCard("Active", "0", "Downloading", "fa6s.download", PRIMARY)
         self._queued_stat = StatCard("Queued", "0", "Waiting", "fa6s.layer-group", SECONDARY)
+        self._paused_stat = StatCard("Paused", "0", "On hold", "fa6s.pause", "#FBBF24")
         self._done_stat = StatCard("Completed", "0", "This session", "fa6s.circle-check", ACCENT)
         self._failed_stat = StatCard("Failed", "0", "This session", "fa6s.triangle-exclamation", "#F87171")
-        for i, card in enumerate((self._active_stat, self._queued_stat, self._done_stat, self._failed_stat)):
+        for i, card in enumerate(
+            (self._active_stat, self._queued_stat, self._paused_stat, self._done_stat, self._failed_stat)
+        ):
             grid.addWidget(card, 0, i)
-        for c in range(4):
+        for c in range(5):
             grid.setColumnStretch(c, 1)
         outer.addLayout(grid)
 
@@ -190,6 +201,7 @@ class DownloadsPage(QWidget):
 
         self._download_service.progress.connect(self._on_item_upserted)
         self._download_service.item_completed.connect(self._on_item_upserted)
+        self._download_service.item_paused.connect(self._on_item_upserted)
         self._download_service.item_failed.connect(lambda item, _msg: self._on_item_upserted(item))
         self._download_service.queue_changed.connect(self._refresh)
 
@@ -218,7 +230,12 @@ class DownloadsPage(QWidget):
         for item in items:
             card = self._cards.get(item.id)
             if card is None:
-                card = DownloadCard(item, on_cancel=self._download_service.cancel_download)
+                card = DownloadCard(
+                    item,
+                    on_cancel=self._download_service.cancel_download,
+                    on_pause=self._download_service.pause_download,
+                    on_resume=self._download_service.resume_download,
+                )
                 self._cards[item.id] = card
                 self._cards_layout.addWidget(card)
             else:
@@ -231,10 +248,12 @@ class DownloadsPage(QWidget):
         items = self._download_service.list_queue()
         active = sum(1 for i in items if i.is_active())
         queued = sum(1 for i in items if i.status == DownloadStatus.QUEUED)
+        paused = sum(1 for i in items if i.status == DownloadStatus.PAUSED)
         done = sum(1 for i in items if i.status == DownloadStatus.COMPLETED)
         failed = sum(1 for i in items if i.status in (DownloadStatus.FAILED, DownloadStatus.CANCELLED))
         self._set_value(self._active_stat, str(active))
         self._set_value(self._queued_stat, str(queued))
+        self._set_value(self._paused_stat, str(paused))
         self._set_value(self._done_stat, str(done))
         self._set_value(self._failed_stat, str(failed))
 

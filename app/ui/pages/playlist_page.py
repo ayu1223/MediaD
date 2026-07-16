@@ -13,7 +13,8 @@ from PySide6.QtWidgets import (
     QCheckBox, QFileDialog, QFrame, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget,
 )
 
-from app.core.constants import SUPPORTED_AUDIO_FORMATS, SUPPORTED_VIDEO_QUALITIES
+from app.core.constants import SUPPORTED_AUDIO_FORMATS
+from app.models.media_info import MediaInfo
 from app.models.playlist import PlaylistInfo
 from app.services.download_service import DownloadService
 from ..components.buttons import ChipButton, GhostButton, PrimaryButton, SecondaryButton
@@ -227,9 +228,10 @@ class PlaylistPage(QWidget):
         fl.addLayout(col)
         fl.addStretch()
 
-        self.quality = ModernComboBox(list(SUPPORTED_VIDEO_QUALITIES))
+        self.quality = ModernComboBox()
         fl.addWidget(self.quality)
         self.audio_switch = ModernSwitch(False)
+        self.audio_switch.toggled.connect(self._on_audio_only_toggled)
         fl.addWidget(self.audio_switch)
 
         self.folder_btn = SecondaryButton("Folder", icon_name="fa6s.folder-open")
@@ -253,6 +255,8 @@ class PlaylistPage(QWidget):
         lay.addWidget(scroll)
 
         self._destination_dir = default_download_dir
+        self._video_qualities: list[str] = []
+        self._audio_formats: list[str] = list(SUPPORTED_AUDIO_FORMATS)
         self._update_selection_label()
 
     # ------------------------------------------------------------------
@@ -274,7 +278,54 @@ class PlaylistPage(QWidget):
             self._rows.append(row)
 
         self._empty_state.setVisible(not playlist.entries)
+
+        # Issue 1/2: populate the quality dropdown from what's actually available
+        # across this playlist's entries instead of a hardcoded list. Different
+        # entries can have different available resolutions, so we take the union
+        # of all of them, maximizing choice — an entry that lacks the selected
+        # resolution simply falls back to its own closest available quality at
+        # download time (see YtDlpProvider._build_format_selector's height<=N
+        # selector, which already degrades gracefully; Issue 2 requirement).
+        self._video_qualities = self._union_qualities(playlist.entries) or ["best"]
+        self._audio_formats = self._union_audio_formats(playlist.entries) or list(SUPPORTED_AUDIO_FORMATS)
+        self._populate_quality(audio_only=self.audio_switch.isChecked())
+
         self._update_selection_label()
+
+    @staticmethod
+    def _union_qualities(entries: list[MediaInfo]) -> list[str]:
+        """Union of every entry's available_qualities, deduplicated and sorted
+        descending by resolution."""
+        seen: set[int] = set()
+        for entry in entries:
+            for quality in entry.available_qualities:
+                digits = "".join(char for char in quality if char.isdigit())
+                if digits:
+                    seen.add(int(digits))
+        return [f"{height}p" for height in sorted(seen, reverse=True)]
+
+    @staticmethod
+    def _union_audio_formats(entries: list[MediaInfo]) -> list[str]:
+        """Union of every entry's available_audio_formats, preserving first-seen order."""
+        seen: list[str] = []
+        for entry in entries:
+            for fmt in entry.available_audio_formats:
+                if fmt not in seen:
+                    seen.append(fmt)
+        return seen
+
+    def _populate_quality(self, audio_only: bool) -> None:
+        self.quality.clear()
+        if audio_only:
+            self.quality.addItems(self._audio_formats or list(SUPPORTED_AUDIO_FORMATS))
+        else:
+            self.quality.addItems(self._video_qualities or ["best"])
+
+    def _on_audio_only_toggled(self, checked: bool) -> None:
+        # Issue 3: audio-only mode is independent of video quality — switching it
+        # immediately swaps the dropdown's contents (video heights <-> audio
+        # formats) rather than leaving stale entries from the other mode showing.
+        self._populate_quality(audio_only=checked)
 
     def _apply_filter(self, query: str) -> None:
         if not self._playlist:
@@ -308,7 +359,7 @@ class PlaylistPage(QWidget):
 
         quality = self.quality.currentText() or "best"
         audio_only = self.audio_switch.isChecked()
-        audio_format = list(SUPPORTED_AUDIO_FORMATS)[0] if audio_only else None
+        audio_format = self.quality.currentText() if audio_only else None
 
         partial_playlist = PlaylistInfo(
             id=self._playlist.id,

@@ -170,6 +170,13 @@ class SettingsPage(QWidget):
         behavior.addRow(
             "Check for updates", "Check for a newer version automatically on startup.", self._check_updates_switch
         )
+        self._notifications_switch = ModernSwitch(settings.notifications_enabled)
+        self._notifications_switch.toggled.connect(self._save)
+        behavior.addRow(
+            "Notifications",
+            "Show a system notification when a download starts, finishes, fails, or a playlist completes.",
+            self._notifications_switch,
+        )
         grid.addWidget(behavior, 0, 1)
 
         # ---- Appearance (visual parity only — single dark theme, see main_window) ----
@@ -275,4 +282,5 @@ class SettingsPage(QWidget):
             confirm_before_delete=self._confirm_delete_switch.isChecked(),
             check_for_updates=self._check_updates_switch.isChecked(),
             cookies_file=self._cookies_input.text().strip(),
+            notifications_enabled=self._notifications_switch.isChecked(),
         )

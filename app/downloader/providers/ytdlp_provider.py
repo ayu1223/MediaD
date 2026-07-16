@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 from app.core.constants import SUPPORTED_AUDIO_FORMATS
 from app.core.logger import get_logger
 from app.core.paths import get_ffmpeg_location
-from app.downloader.progress import build_progress_hook
+from app.downloader.progress import DownloadPausedError, build_progress_hook
 from app.downloader.providers.base import ProgressCallback, Provider
 from app.models.download_item import DownloadItem
 from app.models.media_info import MediaInfo
@@ -414,8 +414,14 @@ class YtDlpProvider(Provider):
         _logger.info("Extracted metadata for '%s' (%s)", info.get("title"), url)
         return self._to_media_info(info)
 
-    def download(self, item: DownloadItem, progress_cb: ProgressCallback, cancel_event: threading.Event) -> None:
-        hook = build_progress_hook(progress_cb, cancel_event)
+    def download(
+        self,
+        item: DownloadItem,
+        progress_cb: ProgressCallback,
+        cancel_event: threading.Event,
+        pause_event: threading.Event | None = None,
+    ) -> None:
+        hook = build_progress_hook(progress_cb, cancel_event, pause_event)
         item.destination_path.parent.mkdir(parents=True, exist_ok=True)
 
         def build_command(cookie_args: list[str]) -> list[str]:
@@ -445,16 +451,27 @@ class YtDlpProvider(Provider):
             )
             try:
                 self._stream_progress(process, hook)
+            except DownloadPausedError:
+                process.terminate()
+                process.wait()
+                # Deliberately do NOT clean up partial files here (unlike the
+                # cancellation path below): yt-dlp's .part file is exactly what
+                # --continue (see _resilience_args) needs to resume from where
+                # this attempt stopped, next time this item is un-paused and a
+                # fresh worker re-runs this same command against the same
+                # destination path.
+                _logger.info("Download paused: '%s' (%s)", item.media_info.title, item.id)
+                raise
             except Exception:
                 process.kill()
                 process.wait()
                 self._cleanup_partial_files(item)
                 if cancel_event.is_set():
                     _logger.info("Download cancelled: '%s' (%s)", item.media_info.title, item.id)
-                raise  # cancellation (or any streaming error) stops immediately —
+                raise  # cancellation (or any other streaming error) stops immediately —
                        # never treated as "try the next cookie source"
 
-            stderr_output = process.stderr.read() if process.stderr is not None else ""
+            stderr_output = process.stderr.read() if process.stdout is not None else ""
             return_code = process.wait()
             if return_code != 0:
                 self._cleanup_partial_files(item)
@@ -531,12 +548,18 @@ class YtDlpProvider(Provider):
         machinery (fragment retries, exponential retry-sleep, socket timeout),
         which covers transient failures within a single invocation. See
         _run_with_cookie_fallback for the complementary whole-invocation retry
-        and cookie fallback chain."""
+        and cookie fallback chain.
+
+        --continue is explicit (rather than relying on yt-dlp's default) so pause
+        support (see download()) is guaranteed to resume from the existing .part
+        file regardless of yt-dlp version/config changes.
+        """
         return [
             "--retries", _YTDLP_RETRIES,
             "--fragment-retries", _YTDLP_FRAGMENT_RETRIES,
             "--retry-sleep", _YTDLP_RETRY_SLEEP,
             "--socket-timeout", _YTDLP_SOCKET_TIMEOUT,
+            "--continue",
         ]
 
     def _postprocessing_args(self, item: DownloadItem) -> list[str]:
